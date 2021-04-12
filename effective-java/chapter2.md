@@ -1,4 +1,4 @@
-# 2장 객체 생성과 파괴
+# 2장 객체 생성과 파괴  
 
 <br>
 객체를 만들어야 할 때와 아닐 때, 올바른 객체 생성 방법과 불필요한 생성을 피하는 방법, 제때 파괴됨을 보장하고 파괴 전에 수행해야 할 정리 작업을 관리하는 요령 알아보기
@@ -182,13 +182,110 @@ public enum Elvis {
   INSTANCE;
 }
 ```
-간결, 직렬화 쉬움, 리플렉션 공격 안먹힘. Enum 외 클래스 상속해야하는 경우 제외하고 대부분 상황에서 이 방식이 가장 Best.
+간결, 직렬화 쉬움, 리플렉션 공격 안먹힘. Enum 외 클래스 상속해야하는 경우 제외하고 대부분 상황에서 이 방식이 가장 Best.  
+<br>
 
-## 4. 인스턴스화를 막으려거든 private 생성자를 사용하라
+## 4. 인스턴스화를 막으려거든 private 생성자를 사용하라  
 
-## 5. 자원을 직접 명시하지 말고 의존 객체 주입을 사용하라
+정적 메서드와 정적 필드만을 담은 유틸리티 클래스는 private 생성자를 추가하여 클래스의 인스턴스화와 상속을 막자.  
+```java
+public class UtilityClass {
+  private UtilityClass() {
+    throw new AssertionError();
+  }
+  ...
+}
+``` 
+<br>
 
-## 6. 불필요한 객체 생성을 피하라
+## 5. 자원을 직접 명시하지 말고 의존 객체 주입을 사용하라  
+
+다음 예제는 사전에 의존하는 맞춤법 검사기 클래스이다. 이런 클래스는 다음과 같이 정적 유틸리티 클래스로 구현하는 경우가 있다.
+
+```java
+/*
+* 정적 유틸리티를 잘못 사용한 예 - 유연하지 않고 테스트하기 어렵다.
+*/
+public class SpellChecker {
+  private static final Lexicon dictionary = ...;
+
+  private SpellChecker() {} // 객체 생성 방지
+
+  public static boolean isValid(String word) { ... }
+  public static List<String> suggestions(String typo) { ... }
+}
+``` 
+```java
+/*
+* 싱글턴을 잘못 사용한 예 - 유연하지 않고 테스트하기 어렵다.
+*/
+public class SpellChecker {
+  private final Lexicon dictionary = ...;
+
+  private SpellChecker() {} // 객체 생성 방지
+  public static SpellChecker INSTANCE = new SpellChecker(...);
+
+  public static boolean isValid(String word) { ... }
+  public static List<String> suggestions(String typo) { ... }
+}
+``` 
+
+두 방식 모두 사전을 단 하나만 사용한다. SpellChecker가 여러 사진을 사용할 수 있도록 하기 위해 사전 필드의 final을 제거하고 교체하여 사용하는 것은 오류를 내기 쉽고 멀티스레드 환경에서는 쓸 수 없다.  
+인스턴스에 따라 동작이 달라지는 클래스에는 의존 객체 주입을 사용하여 유연성, 재사용성, 테스트 용이성을 확보하자.
+
+```java
+public class SpellChecker {
+  private final Lexicon dictionary;
+
+  private SpellChecker(Lexicon dictionary) {
+    // 의존 객체 주입
+    this.dictionary = Objects.requireNonNull(dictionary);
+  }
+
+  public static boolean isValid(String word) { ... }
+  public static List<String> suggestions(String typo) { ... }
+}
+``` 
+<br>
+
+## 6. 불필요한 객체 생성을 피하라 
+
+- 똑같은 기능의 객체는 재사용하자.
+
+```java
+/* 매번 새로운 인스턴스 만드는 코드, 따라하지 말 것 */
+String s = new String("banana");
+
+/* 매번 새로운 인스턴스를 만들지 않고 하나의 String 인스턴스를 사용, 같은 가상 머진 안에서 같은 문자열 리터럴을 사용하면 동일 객체를 참조함 [JLS 3.10.5] */
+String s = "banana";
+``` 
+- 생성자 대신 정적 팩터리 메서드를 제공하는 불변 클래스를 사용하여 재사용하자. 
+- 생성 비용이 비싼 객체는 캐싱하여 재사용하자. 
+
+```java
+static boolean isRomanNumeral(String s) {
+  /* 문자열이 유효한 로마 숫자인지 확인하는 메서드
+  * 이 메서드 내부에서 만드는 정규표현식용 Pattern 인스턴스는 한 번 쓰고 버려진다.
+  * Pattern 은 입력받은 정규표현식에 해당하는 유한 상태 머신(finite state machine)을 
+  * 만들기 때문에 인스턴스 생성 비용이 높다.
+  */
+  return s.matches("^(?=.)M*(C[MD]|D?C{0,3})" + "(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$");
+}
+``` 
+```java
+public class RomanNumerals {
+  // Pattern 인스턴스를 초기화 과정에서 생성하여 캐싱해둠
+  private static final Patterm ROMAN = Pattern.compile(
+    "^(?=.)M*(C[MD]|D?C{0,3})" + "(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})$"
+  );
+  static boolean isRomanNumeral(String s) {
+    // 캐싱한 Pattern을 재사용
+    return ROMAN.matchers(s).matches();
+  }
+}
+``` 
+- 의도치않은 오토박싱이 발생하지 않도록 하자.
+- 객체 생성은 비싸니 무조건 피하자가 아니다. 프로그램의 명확성, 간결성, 기능을 위해 생성하는 것이라면 일반적으로는 좋은 일이다.
 
 ## 7. 다 쓴 객체 참조를 해제하라
 
